@@ -1,0 +1,6 @@
+/vendor/
+*.exe
+*.zip
+*.xlsx
+*.yaml
+/.idea/
