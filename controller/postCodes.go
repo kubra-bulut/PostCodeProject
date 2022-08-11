@@ -56,8 +56,8 @@ func GETTownsDistinct(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, "town param is required")
 		return
 	}
-	var returnValue []models.District
-	for _, district := range config.Districts {
+	var returnValue []models.PostCode
+	for _, district := range config.AllPostCodes {
 		if district.Town == townParam && district.County == countyParam {
 			returnValue = append(returnValue, district)
 		}

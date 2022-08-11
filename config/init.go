@@ -1,9 +1,9 @@
 package config
 
 import (
+	"PostCodeProject/libs"
 	"PostCodeProject/models"
 	"archive/zip"
-	"errors"
 	"fmt"
 	"github.com/go-resty/resty/v2"
 	"github.com/xuri/excelize/v2"
@@ -11,21 +11,26 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 var (
-	Cities       []models.City
-	Counties     []models.County
-	AllPostCodes []models.PostCode
-	Towns        []models.Town
-	Districts    []models.District
+	LocalIPAddress = GetOutboundIP()
+	Port           = 8760
+	Cities         []models.City
+	Counties       []models.County
+	AllPostCodes   []models.PostCode
+	Towns          []models.Town
 )
 
+// performans issue
 func Init() {
-	filePath := "C:\\Users\\K\\GolandProjects\\PostCodeProject\\postCode.yaml"
+	startTime := time.Now()
+	filePath, _ := libs.GetAppDataPath("postcodes.yaml")
 	data, err := ioutil.ReadFile(filePath)
 	if err != nil {
 		log.Fatalf("error: %v", err)
@@ -36,82 +41,54 @@ func Init() {
 		log.Fatalf("error: %v", err)
 	}
 
-	var isFind bool
+	citiesMap := make(map[string]models.City)
+	countiesMap := make(map[string]models.County)
+	townsMap := make(map[string]models.Town)
 	for _, postCode := range AllPostCodes {
-		isFind = false
-		for _, city := range Cities {
-			if city.Name == postCode.City {
-				isFind = true
-				break
-			}
+		citiesMap[postCode.City] = models.City{
+			Name: postCode.City,
 		}
-		if !isFind {
-			Cities = append(Cities, models.City{
-				Name: postCode.City,
-			})
+		countiesMap[fmt.Sprintf("%s.%s", postCode.City, postCode.County)] = models.County{
+			City:   postCode.City,
+			County: postCode.County,
 		}
 
-		isFind = false
-		for _, county := range Counties {
-			if county.County == postCode.County && county.City == postCode.City {
-				isFind = true
-				break
-			}
-		}
-		if !isFind {
-			Counties = append(Counties, models.County{
-				City:   postCode.City,
-				County: postCode.County,
-			})
-		}
-		isFind = false
-		for _, town := range Towns {
-			if town.County == postCode.County && town.Town == postCode.Town && town.City == postCode.City {
-				isFind = true
-				break
-			}
-		}
-		if !isFind {
-			Towns = append(Towns, models.Town{
-				City:   postCode.City,
-				County: postCode.County,
-				Town:   postCode.Town,
-			})
-		}
-		isFind = false
-		for _, district := range Districts {
-			if district.Town == postCode.Town && district.District == postCode.District {
-				isFind = true
-				break
-			}
-		}
-		if !isFind {
-			Districts = append(Districts, models.District{
-				City:     postCode.City,
-				County:   postCode.County,
-				Town:     postCode.Town,
-				District: postCode.District,
-				Code:     postCode.Code,
-			})
+		townsMap[fmt.Sprintf("%s.%s.%s", postCode.City, postCode.County, postCode.Town)] = models.Town{
+			City:   postCode.City,
+			County: postCode.County,
+			Town:   postCode.Town,
 		}
 	}
+	for _, city := range citiesMap {
+		Cities = append(Cities, city)
+	}
+
+	for _, county := range countiesMap {
+		Counties = append(Counties, county)
+	}
+
+	for _, town := range townsMap {
+		Towns = append(Towns, town)
+	}
+
+	fmt.Println("Time elapsed: ", time.Since(startTime))
 }
 
 //DownloadFile Downloads the file from the given url
 func DownloadFile(filePath, url string) error {
-	dir, err := filepath.Abs(filepath.Dir(os.Args[0]))
-	if err != nil {
-		return err
-	}
-	fmt.Println(dir)
+	//dir, err := filepath.Abs(filepath.Dir(os.Args[0]))
+	//if err != nil {
+	//	return err
+	//}
+	//fmt.Println(dir, filePath, url)
 	// Create a Resty Client
 	client := resty.New()
-
+	fmt.Printf("Downloading %s, %s\n", url, filePath)
 	// HTTP response gets saved into file, similar to curl -o flag
 	if _, err := client.R().
 		SetOutput(filePath).
 		Get(url); err != nil {
-		return errors.New("failed downloading the file")
+		return err
 	}
 
 	fmt.Println("File downloaded")
@@ -187,16 +164,10 @@ func UnzipFile(f *zip.File, destination string) error {
 	return nil
 }
 
-func ImportFromExcel() {
-	absPath, err := filepath.Abs("pk_20220413.xlsx")
-
+func ImportFromExcel(filepath string) {
+	f, err := excelize.OpenFile(filepath)
 	if err != nil {
-		fmt.Println(err)
-	}
-	f, err := excelize.OpenFile(absPath)
-	if err != nil {
-		DownloadFile("pk_list.zip", "https://postakodu.ptt.gov.tr/Dosyalar/pk_list.zip")
-		GetSourceToUnzip("pk_list.zip", "")
+		fmt.Println(err.Error())
 	}
 	defer func() {
 		// Close the spreadsheet.
@@ -231,10 +202,21 @@ func ImportFromExcel() {
 		fmt.Println("Remaining records inserted")
 	}
 	// tüm postcodeları kaydedelim
-	filePath := "C:\\Users\\K\\GolandProjects\\PostCodeProject\\postcodes.yaml"
+	filePath, _ := libs.GetAppDataPath("postcodes.yaml")
 	data, err := yaml.Marshal(&allPostCodes)
 	if err != nil {
 		log.Fatalf("error: %v", err)
 	}
 	err = ioutil.WriteFile(filePath, data, 0644)
+}
+
+func GetOutboundIP() string {
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		log.Println("GetOutboundIP", err)
+	}
+	defer conn.Close()
+	localAddr := conn.LocalAddr().String()
+	idx := strings.LastIndex(localAddr, ":")
+	return localAddr[0:idx]
 }
